@@ -34,7 +34,7 @@ type ClientRecordData = {
 }
 type ServerRecordData = {
 	Model: Model?,
-	CloneModel: Model?,
+	InstanceCopy: (BasePart | Model)?,
 	Key: Trackable,
 	PrimaryPart: BasePart,
 	Parent: Instance,
@@ -55,8 +55,8 @@ type ServerReplicationRecord = {
 type DataId = "Add" | "Move" | "Del"
 type ReplicatedMove = {
 	I: Trackable?,
-	P: string,
-	A: string,
+	P: string?,
+	A: string?,
 }
 type Packet = {
 	Id: DataId,
@@ -142,9 +142,9 @@ function KinematicObjectService:_ReplicateToPlayer(playerData: PlayerData, serve
 	if playerData.ReplicationRecords[serverRecord.Key]then
 		return
 	end
-	--print("Sending instance to player ", kinematicRecord)
-	if serverRecord.CloneModel then
-		local clone: Instance = serverRecord.CloneModel:Clone()
+	print("Sending instance to player ", serverRecord)
+	if serverRecord.InstanceCopy then
+		local clone: Instance = serverRecord.InstanceCopy:Clone()
 		clone.Name = clone.Name .. REPLICATION_SUFFIX
 		
 		local replicationRecord: ServerReplicationRecord = {
@@ -202,16 +202,14 @@ function KinematicObjectService:Insert(target: Trackable): ()
 	else
 		
 		if (target:IsA("BasePart") == false and target:IsA("Model") == false) then
-			warn("Kinematic tags must be applied to baseparts and models only:", target)
-			return
+			error("Kinematic tags must be applied to baseparts and models only:")
 		end
 		
 		local primaryPart: BasePart?
 		local model: Model?
 		if (target:IsA("Model")) then
 			if (target.PrimaryPart == nil) then
-				warn("Kinematic - No primarypart for ", target)
-				return
+				error(`Kinematic - No primarypart for {target:GetFullName()}`)
 			end 
 			primaryPart = target.PrimaryPart
 			model = target
@@ -229,7 +227,7 @@ function KinematicObjectService:Insert(target: Trackable): ()
 			Parent = parent, 
 			PrimaryPart = primaryPart, 
 			Model = model,
-			CloneModel = if model then model:Clone() else nil,
+			InstanceCopy = if target then target:Clone() else nil,
 			CFrame = {
 				Last = primaryPart.CFrame,
 			},
@@ -293,8 +291,8 @@ function KinematicObjectService:Remove(target: Trackable): ()
 			end
 		end
 		
-		if record.CloneModel then
-			record.CloneModel:Destroy()
+		if record.InstanceCopy then
+			record.InstanceCopy:Destroy()
 
 		end
 
@@ -315,23 +313,39 @@ function KinematicObjectService.new()
 	self._SmoothFactor = DEFAULT_SMOOTH_FACTOR
 	self._ClientRegistry = {}
 	self._PlayerDataRegistry = {}
-	
+	self._ServerRegistry = {}
+
 	if RunService:IsClient() then
+		-- print("Client boot")
 		self._RemoteEvent = NetworkUtil.getRemoteEvent(KINEMATIC_OBJECT_DATA_EVENT_NAME)
 		self._Maid:GiveTask(self._RemoteEvent.OnClientEvent:Connect(function(data: Packet)
+			-- print("on client", data)
 			if data.Id == "Add" then
+				-- print("ADD", data)
 				local inst = data.Instance
 				assert(inst)
+
+				if data.Parent then
+					if inst:IsA("BasePart") then
+						inst.Parent = data.Parent
+					elseif inst:IsA("Model") then
+						inst.Parent = data.Parent
+					end
+				end
+
 				self:Insert(inst)
+
 			elseif data.Id == "Move" then
 				for key, move in pairs(data.Moves) do
 					local inst = move.I
-		
+					-- print(key, inst)
 					if inst then
 						local record = self:_GetClientRecord(inst)
 						assert(record, `record missing for {inst:GetFullName()}`)
+						-- print(move.P)
 						if move.P then
 							local posx, posy, posz = string.unpack("fff", move.P)
+							-- print(posx, posy, posz)
 							record.Position = CFrame.new(Vector3.new(posx, posy, posz)) 
 						end
 						if move.A then
@@ -355,6 +369,8 @@ function KinematicObjectService.new()
 					continue
 				end
 				assert(pos and rot)
+				record.CFrame.Target = pos * rot
+				record.CFrame.Last = record.CFrame.Current
 				record.CFrame.Current = smoothLerp(record.CFrame.Current, record.CFrame.Target, self._SmoothFactor, deltaTime)
 				if record.Model then
 					record.Model:PivotTo(record.CFrame.Current)
@@ -383,12 +399,13 @@ function KinematicObjectService.new()
 		self._ServerCamera.Name = "DoNotReplicate"
 		self._ServerCamera.Parent = workspace
 
+
 		self._RemoteEvent = self._Maid:GiveTask(NetworkUtil.getRemoteEvent(KINEMATIC_OBJECT_DATA_EVENT_NAME))
 		local timeOfNextUpdate = 0
 
 
 		local function buildPacketForPlayer(playerRecord: PlayerData)
-	
+			-- print("build package", playerRecord)
 			local epsilon = 0.001
 			local moves: {[number]: ReplicatedMove} = {}	
 			local send = false
@@ -414,6 +431,7 @@ function KinematicObjectService.new()
 					write = true
 				end
 				record.Position = p
+				-- print("rP", record.Position)
 				
 				local encodedA: string?
 
@@ -424,8 +442,8 @@ function KinematicObjectService.new()
 				record.Angle = angle
 				record.Axis = axis
 						
-				assert(encodedP)
-				assert(encodedA)
+				-- assert(encodedP)
+				-- assert(encodedA)
 
 				local rec: ReplicatedMove = {
 					I = inst, 
@@ -439,6 +457,7 @@ function KinematicObjectService.new()
 				end
 			end
 			
+
 			if (send == true) then
 				local packet: Packet = {
 					Id = "Move",
@@ -448,10 +467,7 @@ function KinematicObjectService.new()
 			end
 		end
 		
-
-
-		self._Maid:GiveTask(Players.PlayerAdded:Connect(function(player: Player)
-		
+		local function bootPlayer(player: Player)
 			local playerRecord: PlayerData = {
 				ReplicationRecords = {},
 				Player = player,
@@ -467,7 +483,13 @@ function KinematicObjectService.new()
 			for trackable, record in pairs(self._ServerRegistry) do
 				self:_ReplicateToPlayer(playerRecord, record)
 			end
-		end))
+		end
+
+		self._Maid:GiveTask(Players.PlayerAdded:Connect(bootPlayer))
+		for i, player in ipairs(Players:GetPlayers()) do
+			bootPlayer(player)
+		end
+
 		self._Maid:GiveTask(Players.PlayerRemoving:Connect(function(player)
 			local playerData = self._PlayerDataRegistry[player.UserId]
 			self._PlayerDataRegistry[player.UserId] = nil :: any

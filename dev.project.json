@@ -10,6 +10,21 @@
 		   "$path": "src"
 		 }
 	    }
+	  },
+	  "ServerScriptService": {
+		"$className": "ServerScriptService",
+		"Boot": {
+			"$path": "Test.server.luau"
+		}
+	  },
+	  "StarterPlayer": {
+		"$className": "StarterPlayer",
+		"StarterPlayerScripts": {
+			"$className": "StarterPlayerScripts",
+			"Boot": {
+				"$path": "Test.client.luau"
+			}
+		}
 	  }
 	}
    }
