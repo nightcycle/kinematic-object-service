@@ -17,7 +17,7 @@ keys.txt
 # File types
 *.lock
 *.gitconfig
-*.rbxl
+# *.rbxl
 *.rbxlx
 *.lock
 
