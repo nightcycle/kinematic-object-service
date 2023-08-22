@@ -81,6 +81,8 @@ export type KinematicObjectService = {
 	_PlayerDataRegistry: {[number]: PlayerData},
 	_ServerCamera: Camera,
 	TAG_NAME: string,
+	EPSILON: number,
+	SERVER_HZ: number,
 	SetSmoothFactor: (self: KinematicObjectService, smoothFactor: number) -> (),
 	Insert: (self: KinematicObjectService, target: Trackable) -> (),
 	Remove: (self: KinematicObjectService, target: Trackable) -> (),
@@ -93,11 +95,8 @@ export type KinematicObjectService = {
 
 -- Constants
 local KINEMATIC_OBJECT_DATA_EVENT_NAME = "KinematicObjectServiceData"
-local KINEMATIC_TAG_NAME = "KinematicObject"
 local REPLICATION_SUFFIX = "_REPLICATED"
-local DEFAULT_SMOOTH_FACTOR = 0.99
-local SERVER_HZ = 20
-
+local DEFAULT_SMOOTH_FACTOR = 0.999
 -- Variables
 
 
@@ -121,8 +120,9 @@ end
 local CurrentKinematicObjectService: KinematicObjectService = nil :: any
 local KinematicObjectService = {} :: KinematicObjectService
 KinematicObjectService.__index = KinematicObjectService
-KinematicObjectService.TAG_NAME = KINEMATIC_TAG_NAME
-
+KinematicObjectService.TAG_NAME = "KinematicObject"
+KinematicObjectService.EPSILON = 0.00001
+KinematicObjectService.SERVER_HZ = 20
 function KinematicObjectService:Destroy()
 	if not self._IsAlive then return end
 	self._IsAlive = false
@@ -234,9 +234,9 @@ function KinematicObjectService:Insert(target: Trackable): ()
 		}
 
 		
-		CollectionService:RemoveTag(primaryPart, KINEMATIC_TAG_NAME)
+		CollectionService:RemoveTag(primaryPart, KinematicObjectService.TAG_NAME)
 		for i,value in ipairs(target:GetDescendants()) do
-			CollectionService:RemoveTag(value, KINEMATIC_TAG_NAME)
+			CollectionService:RemoveTag(value, KinematicObjectService.TAG_NAME)
 			if (value:IsA("Script")) then
 				value:Destroy()
 			end
@@ -406,7 +406,6 @@ function KinematicObjectService.new()
 
 		local function buildPacketForPlayer(playerRecord: PlayerData)
 			-- print("build package", playerRecord)
-			local epsilon = 0.001
 			local moves: {[number]: ReplicatedMove} = {}	
 			local send = false
 			for key,record in pairs(playerRecord.ReplicationRecords) do
@@ -426,7 +425,7 @@ function KinematicObjectService.new()
 				
 				local encodedP: string?
 
-				if (record.Position == nil or record.Position:FuzzyEq(p,epsilon) == false) then
+				if (record.Position == nil or record.Position:FuzzyEq(p,self.EPSILON) == false) then
 					encodedP = string.pack("fff", p.X, p.Y, p.Z)
 					write = true
 				end
@@ -435,7 +434,7 @@ function KinematicObjectService.new()
 				
 				local encodedA: string?
 
-				if (record.Rotation == nil or (record.Axis and record.Axis:FuzzyEq(axis,epsilon) == false) or (record.Angle and math.abs(record.Angle - angle) > epsilon)) then
+				if (record.Rotation == nil or (record.Axis and record.Axis:FuzzyEq(axis,self.EPSILON) == false) or (record.Angle and math.abs(record.Angle - angle) > self.EPSILON)) then
 					encodedA = string.pack("ffff", axis.X, axis.Y, axis.Z, angle)
 					write = true
 				end
@@ -501,7 +500,7 @@ function KinematicObjectService.new()
 		
 		self._Maid:GiveTask(RunService.PreSimulation:Connect(function(deltaTime: number)
 				
-			for i,target in ipairs(CollectionService:GetTagged(KINEMATIC_TAG_NAME)) do
+			for i,target in ipairs(CollectionService:GetTagged(self.TAG_NAME)) do
 				if target:IsA("BasePart") or target:IsA("Model") then
 					if not self._ServerRegistry[target] then
 						self:Insert(target)
@@ -524,8 +523,8 @@ function KinematicObjectService.new()
 			
 			timeOfNextUpdate+=deltaTime
 
-			if (timeOfNextUpdate > 1/SERVER_HZ) then
-				timeOfNextUpdate = math.fmod(timeOfNextUpdate, 1/SERVER_HZ)
+			if (timeOfNextUpdate > 1/self.SERVER_HZ) then
+				timeOfNextUpdate = math.fmod(timeOfNextUpdate, 1/self.SERVER_HZ)
 				
 				for key,playerRecord in pairs(self._PlayerDataRegistry) do
 					buildPacketForPlayer(playerRecord)
