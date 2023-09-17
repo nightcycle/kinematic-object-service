@@ -142,7 +142,7 @@ function KinematicObjectService:_ReplicateToPlayer(playerData: PlayerData, serve
 	if playerData.ReplicationRecords[serverRecord.Key]then
 		return
 	end
-	print("Sending instance to player ", serverRecord)
+	-- print("Sending instance to player ", serverRecord)
 	if serverRecord.InstanceCopy then
 		local clone: Instance = serverRecord.InstanceCopy:Clone()
 		clone.Name = clone.Name .. REPLICATION_SUFFIX
