@@ -1,4 +1,5 @@
 --!strict
+--!native
 -- huge thanks to MrChickenRocket
 -- much of the design is directly based on their work here https://gist.github.com/MrChickenRocket/19d21c1786503b3c8a7b685368db64de
 local _Package = script
